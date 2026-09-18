@@ -1,4 +1,4 @@
-project_name: "workflow-template"
+project_name: "Loom"
 default_status: "To Do"
 statuses: ["To Do", "Done"]
 labels: []

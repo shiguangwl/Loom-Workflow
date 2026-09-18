@@ -88,7 +88,7 @@ ln -sfn ../../.agents/skills/herdr .claude/skills/herdr
 
 已经在模板副本里时不要再克隆一份覆盖自己。
 
-1. `backlog config set projectName "$(basename "$(pwd)")"`（若仍是 `workflow-template`）。
+1. `backlog config set projectName "$(basename "$(pwd)")"`（若仍是 `Loom`）。
 2. 写 `.workflow/SOURCE`：优先用户给的上游 URL，否则用 `git remote get-url origin`（仅当 origin 就是工作流仓库）；两者都没有则停下，向用户要工作流仓库地址。之后把 origin 改成项目自己的远程是用户的事，不要擅自 `git remote set-url`。
 3. 验收并汇报。
 
