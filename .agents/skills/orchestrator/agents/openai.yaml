@@ -1,0 +1,5 @@
+interface:
+  display_name: "Orchestrator"
+  short_description: "Talk to one session; it dispatches workers and gates quality"
+policy:
+  allow_implicit_invocation: false

@@ -53,9 +53,11 @@ git clone --depth 1 --branch main "$SOURCE" "$tmp"
 .workflow/bin/integrate
 .agents/skills/grilling/
 .agents/skills/herdr/
+.agents/skills/orchestrator/
 .claude/CLAUDE.md
 .claude/skills/grilling          # 符号链接 → ../../.agents/skills/grilling
 .claude/skills/herdr             # 符号链接 → ../../.agents/skills/herdr
+.claude/skills/orchestrator      # 符号链接 → ../../.agents/skills/orchestrator
 CLAUDE.md                        # 内容只有 @AGENTS.md；宿主若已有实质内容则只确保首行是 @AGENTS.md
 skills-lock.json
 INSTALL.md
@@ -67,6 +69,7 @@ INSTALL.md
 mkdir -p .claude/skills
 ln -sfn ../../.agents/skills/grilling .claude/skills/grilling
 ln -sfn ../../.agents/skills/herdr .claude/skills/herdr
+ln -sfn ../../.agents/skills/orchestrator .claude/skills/orchestrator
 ```
 
 `AGENTS.md` 必须在仓库根，按下面规则合并，不要整文件盲拷。
@@ -124,11 +127,11 @@ skills 只随本工作流更新（覆盖 `.agents/skills/` 与 `skills-lock.json
 - `test -x .workflow/bin/integrate`
 - `AGENTS.md` 在仓库根，含 Integrate 段与 `.workflow/bin/integrate`
 - `CLAUDE.md` 第一行 `@AGENTS.md`
-- `.claude/skills/grilling` 与 `herdr` 是指向 `.agents/skills/` 的符号链接
+- `.claude/skills/grilling`、`herdr`、`orchestrator` 是指向 `.agents/skills/` 的符号链接
 - `backlog task list --plain` 能跑
 - `.workflow/SOURCE` 存在且可用来再更新
 - 宿主 `README.md`、业务代码、已有任务未被覆盖
 
 ## 之后
 
-看板：`backlog board`。其余对用户说：讨论需求、拆任务、派 task-3、合 task-3。规则以根目录 `AGENTS.md` 为准。
+看板：`backlog board`。其余对用户说：讨论需求、拆任务、派 task-3、合 task-3。想让当前会话只做调度、实现全部委派：`/orchestrator`（Codex 用 `$orchestrator`）。规则以根目录 `AGENTS.md` 为准。

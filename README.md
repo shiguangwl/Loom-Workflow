@@ -25,6 +25,7 @@
 2. **任务管理，井然有序（Chat is Not State）**：以极简轻量的 `.backlog/` 本地文本持久化状态，杜绝会话上下文膨胀与遗忘，随时无损重启或交接；
 3. **按需隔离，并发无扰（Git Worktree）**：仅在真正需要并行并发、长期任务或涉及重叠冲突时，才派发独立工作树，物理隔离，不留隐患；
 4. **推断门禁，绝不发明（Deterministic Integration）**：直接复用宿主项目现有的测试/构建脚本（`npm test` / `cargo test` / `make check` 等），门禁脚本只做确定性原子校验、合入与清理，零外部侵入。
+5. **一人对话，全局调度（Orchestrator Mode）**：手动输入 `/orchestrator`，当前会话只负责沟通、规划、派发与验收，实现全部交给独立 Worker，走的仍是同一套任务与门禁（详见下文「调度者模式」）。
 
 ---
 
@@ -55,6 +56,28 @@
   ```bash
   npm i -g backlog.md
   ```
+
+---
+
+## 🧭 调度者模式（Orchestrator）
+
+手动触发的会话模式。触发后，当前会话成为 Orchestrator：你只和它对话，它负责澄清需求、规划任务、派发 Worker、验收与合入，自己不改项目文件。
+
+| | 默认模式 | Orchestrator 模式 |
+|---|---|---|
+| **谁来实现** | 主 Agent 默认在 `main` 直出，并行/长任务才派发 | 项目文件的改动全部派发给 Worker |
+| **任务与合入** | 按需创建 Backlog 任务 | 每个改动都走 Backlog 任务 → 独立 worktree → `integrate` |
+| **你要做的** | 需要时说“派 task-3”“合 task-3” | 只谈需求与决策；派发、验收、合入由它推进并汇报 |
+
+它只覆盖 `AGENTS.md` 中“主 Agent 默认在 `main` 上实现”这一条，其余规则原样沿用，不引入新的流程分支；对应全景图中“需要并行 / 跨会话或涉及冲突区？”恒走任务化分支。
+
+- **触发**：Claude Code 输入 `/orchestrator`，Codex 输入 `$orchestrator`。只能由用户手动触发，Agent 不会自行进入；说一声即可退出。模式不跨会话，新会话重新触发，状态从 `.backlog/` 重建。
+- **派发时机**：明确指令直接派发；讨论中产生的工作，先按任务卡复述目标与验收标准，你同意后才派发。
+- **任务卡即简报**：Worker 全新启动，只被告知任务号与 worktree 路径，其余信息都在任务卡上；Worker 的疑问回到 Orchestrator，答案记入任务卡。
+- **调度靠判断**：属于在途任务的追加需求进入同一个 worktree（同一时间只有一个 Worker）；无关工作或任务已 Done，则新建任务。
+- **验收把关**：`integrate` 只保证检查通过，不保证验收标准达标。合入前对照任务卡审 diff，返工退回 Worker；通过即自动合入并汇报。
+
+适合连续交付多个需求的长会话。单点小改动不必开启：此模式下改一行字也要走任务与合入。
 
 ---
 
@@ -164,7 +187,8 @@ flowchart TD
 │   └── config.yml            # 任务配置（项目名、状态集：To Do / Done 等）
 ├── .agents/skills/           # 赋能技能库
 │   ├── grilling/             # 决策质询技能（消除模糊与设计树推演）
-│   └── herdr/                # 终端复用与多 Agent 编排技能
+│   ├── herdr/                # 终端复用与多 Agent 编排技能
+│   └── orchestrator/         # 调度者模式（仅手动触发）：本会话沟通、派发与验收，实现全部委派
 ├── .claude/skills/           # 符号链接（指向 .agents/skills/，兼容 Claude 生态）
 └── .workflow/
     ├── bin/integrate         # 核心门禁脚本：自动化校验、原子合入与任务状态流转
@@ -198,6 +222,8 @@ flowchart TD
   > “请将 task-3 派发至独立 worktree 并启动 Worker 开始交付，完成后汇报我。”
 - **原子验收与合入**：
   > “task-3 开发完成，请在 main 执行合入，使用项目的全量测试脚本 `npm test` 作为质量门禁。”
+- **本会话只做调度（Orchestrator）**：
+  > `/orchestrator`（Codex 用 `$orchestrator`），行为见上文「调度者模式」。
 
 ---
 
