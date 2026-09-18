@@ -33,19 +33,13 @@
 
 ### 一键安装或更新（面向宿主项目）
 
-在需要接入本工作流的任意目标项目中，将以下指令直接发送给编码 Agent（Cursor / Claude Code / Codex / Antigravity）：
+在目标项目里把下面这句发给编码 Agent（Cursor / Claude Code / Codex / Antigravity），安装和更新都用它：
 
 ```text
-安装或更新工作流。源仓库：https://github.com/shiguangwl/Loom-Workflow
-读取该仓库 INSTALL.md 并严格执行。根据当前仓库文件状态判断执行模式。
-切勿修改宿主业务代码、测试、锁定文件或已有任务。未明确要求时切勿提交。
+安装或更新工作流：读取 https://github.com/shiguangwl/Loom-Workflow 的 INSTALL.md 并照做。
 ```
 
-> [!NOTE]
-> Agent 将根据目标仓库自动识别运行模式：
-> - **安装模式**：无工作流时自动写入清单文件、初始化 Backlog 并合并 `AGENTS.md`；
-> - **初始化模式**：从模板克隆时自动重命名项目名并绑定上游源；
-> - **更新模式**：平滑升级最新脚本与技能，且严格保留宿主自定义规约与任务数据。
+Agent 比对两边的 `.workflow/VERSION`：没装过就安装，版本落后就更新，已是最新就直说。更新会保留宿主自己加的 `AGENTS.md` 章节和任务数据。安装后不记录来源、不关联本仓库，下次更新再发一次这句即可。
 
 ### 前置依赖
 
@@ -181,7 +175,7 @@ flowchart TD
 ```text
 ├── AGENTS.md                 # 核心规约：多 Agent 协同准则与边界契约（根目录必须）
 ├── CLAUDE.md                 # 工具重定向（指向 @AGENTS.md，兼容 Claude Code）
-├── INSTALL.md                # 自动化运维：交由 Agent 执行的安装 / 初始化 / 更新规范
+├── INSTALL.md                # 交由 Agent 执行的安装与更新规范
 ├── skills-lock.json          # 技能锁文件：记录 Agent Skills 的来源与版本
 ├── .backlog/                 # 任务状态中枢：Backlog.md 本地任务库，只通过 CLI 读写
 │   └── config.yml            # 任务配置（项目名、状态集：To Do / Done 等）
@@ -192,7 +186,7 @@ flowchart TD
 ├── .claude/skills/           # 符号链接（指向 .agents/skills/，兼容 Claude 生态）
 └── .workflow/
     ├── bin/integrate         # 核心门禁脚本：自动化校验、原子合入与任务状态流转
-    └── SOURCE                # 安装溯源（仅宿主项目存在，记录安装源用于后续无感升级）
+    └── VERSION               # 工作流版本号，安装与更新时比对
 ```
 
 ---
@@ -245,4 +239,5 @@ Deviations
 ```
 
 - **Type 类型**：`feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `perf` / `style` / `build` / `ci`
+- **版本号**：修改 `INSTALL.md` 清单内的文件时，同步提升 `.workflow/VERSION`（语义化版本），否则已安装的项目会被判定为已是最新。
 - **规则优先级**：项目级规则与协作约定统一汇总于仓库根目录的 `AGENTS.md`，所有进入此流程的 Agent 均需严格遵守。
