@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+# Merge a finished task branch into main as one commit and mark the task Done.
+# Worker checkpoint commits are squash-merged; every failure leaves main as it was.
+#
+# Usage: .workflow/bin/integrate <n> [-- <check command>]
+#   Merges branch task/<n>, closes task-<n>. The check command, if given, runs on
+#   the merged tree before anything is committed; the caller picks the project's
+#   real quality command (e.g. `-- npm test`, `-- make check && make build`).
+set -euo pipefail
+n=${1:?usage: .workflow/bin/integrate <n> [-- <check command>]}
+shift; [ "${1:-}" != "--" ] || shift
+check="$*"
+branch="task/$n"
+task="task-$n"
+cd "$(git rev-parse --show-toplevel)"
+die() { echo "integrate: $*" >&2; exit 1; }
+
+# Preflight. Nothing below this block changes state until all of it passes.
+[ "$(git branch --show-current)" = main ] || die "run from main"
+git diff --quiet && git diff --cached --quiet || die "main worktree is dirty; commit or stash first"
+git rev-parse --verify -q "$branch" >/dev/null || die "branch $branch not found"
+command -v python3 >/dev/null || die "python3 is required to read Backlog.md JSON"
+card_json=$(backlog task view "$task" --json 2>/dev/null) || die "$task not found in .backlog"
+{
+  read -r task_status
+  read -r parent
+  read -r blockers
+} < <(printf '%s' "$card_json" | python3 -c '
+import json, sys
+t = json.load(sys.stdin)["task"]
+r = t.get("readiness") or {}
+blocked = list(r.get("blockingDependencies") or []) + list(r.get("missingDependencies") or [])
+print(t.get("status") or "")
+print(t.get("parentTaskId") or "")
+print(",".join(blocked))
+')
+[ "$task_status" != "Done" ] || die "$task is already Done; inconsistent with an open $branch"
+[ -z "$blockers" ] || die "$task is blocked on $blockers; those dependencies must be Done first"
+count=$(git rev-list --count "main..$branch")
+[ "$count" -ge 1 ] || die "$branch is not ahead of main; nothing to merge"
+git diff --quiet "main...$branch" -- .backlog || die "$branch edits .backlog/; only the main agent writes tasks, the worker must drop those changes (git checkout main -- .backlog) and re-commit"
+wt=$(git worktree list --porcelain | awk -v b="refs/heads/$branch" '$1=="worktree"{p=$2} $1=="branch"&&$2==b{print p}')
+[ -z "$wt" ] || [ -z "$(git -C "$wt" status --porcelain)" ] || die "$wt has uncommitted changes; the worker must commit or discard them first"
+
+# From here until the commit lands, any failure restores main.
+trap 'git reset -q --hard; echo "integrate: failed; main restored" >&2' ERR
+if ! git merge --squash -q "$branch" >/dev/null 2>&1; then
+  conflicts=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
+  git reset -q --hard
+  die "conflicts with main in: ${conflicts}- the worker must rebase $branch onto main and re-check"
+fi
+if [ -z "$check" ]; then
+  echo "integrate: no check command given; merging $branch unchecked" >&2
+elif ! bash -ec "$check"; then
+  git reset -q --hard
+  die "check failed on the merged tree; main restored. Run the same command on main: if it also fails, main itself is broken; otherwise send the output above to the worker of $branch"
+fi
+backlog task edit "$task" -s Done >/dev/null
+git add .backlog
+git commit -q -F <(git log -1 --format=%B "$branch")
+trap - ERR
+
+# Cleanup. main already has the commit; failures here are not rolled back.
+[ -z "$wt" ] || git worktree remove --force "$wt"
+git branch -D "$branch" >/dev/null
+echo "integrated $branch as $(git rev-parse --short HEAD); $task -> Done"
+
+if [ -n "$parent" ]; then
+  open=$(backlog task list -p "$parent" --exclude-status Done --plain 2>/dev/null || true)
+  # Task lines are indented; the "no child tasks" message is not.
+  grep -q '^  TASK-' <<<"$open" || echo "all subtasks of $parent are Done; close it with: backlog task edit $parent -s Done"
+fi
