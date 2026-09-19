@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Merge a finished task branch into main as one commit and mark the task Done.
 # Worker checkpoint commits are squash-merged; every failure leaves main as it was.
+# Backlog cards are local state outside git, so the Done transition happens after
+# the commit lands and is never part of it.
 #
 # Usage: .workflow/bin/integrate <n> [-- <check command>]
 #   Merges branch task/<n>, closes task-<n>. The check command, if given, runs on
@@ -38,7 +40,7 @@ print(",".join(blocked))
 [ -z "$blockers" ] || die "$task is blocked on $blockers; those dependencies must be Done first"
 count=$(git rev-list --count "main..$branch")
 [ "$count" -ge 1 ] || die "$branch is not ahead of main; nothing to merge"
-git diff --quiet "main...$branch" -- .backlog || die "$branch edits .backlog/; only the main agent writes tasks, the worker must drop those changes (git checkout main -- .backlog) and re-commit"
+git diff --quiet "main...$branch" -- .backlog/config.yml || die "$branch edits .backlog/config.yml; only the main agent writes Backlog config"
 wt=$(git worktree list --porcelain | awk -v b="refs/heads/$branch" '$1=="worktree"{p=$2} $1=="branch"&&$2==b{print p}')
 [ -z "$wt" ] || [ -z "$(git -C "$wt" status --porcelain)" ] || die "$wt has uncommitted changes; the worker must commit or discard them first"
 
@@ -55,12 +57,11 @@ elif ! bash -ec "$check"; then
   git reset -q --hard
   die "check failed on the merged tree; main restored. Run the same command on main: if it also fails, main itself is broken; otherwise send the output above to the worker of $branch"
 fi
-backlog task edit "$task" -s Done >/dev/null
-git add .backlog
 git commit -q -F <(git log -1 --format=%B "$branch")
 trap - ERR
 
 # Cleanup. main already has the commit; failures here are not rolled back.
+backlog task edit "$task" -s Done >/dev/null
 [ -z "$wt" ] || git worktree remove --force "$wt"
 git branch -D "$branch" >/dev/null
 echo "integrated $branch as $(git rev-parse --short HEAD); $task -> Done"

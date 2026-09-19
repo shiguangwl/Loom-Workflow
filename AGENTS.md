@@ -1,17 +1,17 @@
 # How we work
-* Tasks live in `.backlog/` (Backlog.md CLI; `backlog <cmd> --help`). Chat is not state. Rebuild context from `backlog task list --plain`, `git branch --list 'task/*'`, `git worktree list`.
-* Only the main agent writes Backlog state (`create`, `edit`, status changes), and only on `main`. Workers only read their card with `backlog task <id> --plain`.
-* Branch `task/<n>` always maps to task `task-<n>`.
+* Tasks live in `.backlog/` (Backlog.md CLI; `backlog <cmd> --help`). Cards are local state and stay out of git; only `.backlog/config.yml` is tracked. Chat is not state. Rebuild context from `backlog task list --plain`, `git branch --list 'task/*'`, `git worktree list`.
+* Only the main agent writes Backlog state (`create`, `edit`, status changes), and only from the `main` checkout. Workers only read their card: `BACKLOG_CWD=<main checkout> backlog task <id> --plain`.
+* Branch `task/<n>` always maps to task `task-<n>`: one worktree, one worker at a time.
 * On a `task/*` branch you are a worker. The delegated task and Review define your scope; planning, Backlog state, dependencies, and integration belong to the main agent.
 
 ## Planning
 * If product direction, technical direction, or an important shared contract is still open, run the `grilling` skill first.
-* Default to working on `main`. Create a task only when work runs in parallel, will outlive this session, or overlaps an in-flight task's area.
+* Default to working on `main`. Create a task only when work runs in parallel or will outlive this session.
+* While tasks are in flight, route every new request before creating anything: if it changes what an in-flight task should produce, or touches that task's area, it belongs to that task. Update the card (goal, decisions, acceptance criteria) and re-prompt the same worker in its pane; it re-reads the card. Only work independent of every in-flight task, or arriving after the related task is Done, becomes a new task.
 * A task description holds Goal, Decisions with why, Out of scope, and acceptance criteria.
 * Split only where parts can proceed independently; never just to make pieces smaller. Prefer demoable end-to-end vertical slices.
 * Related tasks may share a parent epic:
   `backlog task create "<title>" [-p <epic-id>] --ac "<criterion>" --dep <task-ids>`
-* Commit `.backlog/` before implementation.
 * Foundation work that defines shared contracts or enables parallel work is done on `main` first.
 * Dispatch only tasks whose dependencies are Done. Product decisions and irreversible trade-offs go to the human.
 
@@ -24,10 +24,11 @@
 * Workers may create checkpoint commits when useful. Before handoff, the worktree must be clean, the project's existing checks green, and the branch must represent one logical change suitable for squashing onto `main`. The tip commit's message becomes the `main` commit message.
 * Final commit subject: `<type>(<scope>): 中文祈使句`.
 * Final commit body:
-  `What / Verified (command + relevant output) / Deviations`
+  `What / Why (the card's key decisions) / Verified (command + relevant output) / Deviations`
   Add `Open questions` only when a genuine non-blocking issue remains.
 * Fresh worktree: install what the project already needs to run those checks (lockfile → `npm ci` / `pnpm i` / equivalent).
-* In Herdr, the `herdr` skill creates the task worktree, starts the worker in it, and removes that workspace before `integrate`. Outside Herdr: `git worktree add ../<repo>-task-<n> -b task/<n> main`, start the same kind of agent in that directory, deliver only `task-<n>`. `<repo>` is the current directory name.
+* Start each worker fresh with its task id, the absolute path of its worktree, and the absolute path of the `main` checkout. Everything else it needs belongs on the card; its open questions come back to the main agent, who records the answers on the card.
+* Before each dispatch, check `HERDR_ENV`. If it is `1`, use the herdr skill even if the user did not mention Herdr: create the task worktree, place the Worker in the current tab to the right of the rightmost Worker, and keep the main pane focused. Do not use a hidden sub-agent, do not leave the Worker in another workspace, and if Herdr fails, report it and stop — do not switch channels. Close the Worker pane before `integrate`; successful `integrate` removes the worktree. If `HERDR_ENV` is not `1`, use `git worktree add ../<repo>-task-<n> -b task/<n> main`, start the same kind of agent in that directory, and deliver only `task-<n>` (`<repo>` is the current directory).
 
 ## Review
 * Cross-vendor review only when a wrong change would be costly and automated checks cannot sufficiently vouch for it: shared/public contracts, data or migrations, concurrency, security-sensitive boundaries, or edits to tests/checks themselves.
@@ -38,9 +39,9 @@
 ## Integrate
 * Infer the check from the repo each time (`package.json` / Makefile / `justfile` / CI / `pyproject.toml` / `Cargo.toml` / `go.mod`): prefer an existing `check` or `ci` script, otherwise compose the existing test / typecheck / build entries into one shell command. Do not invent a check the project does not have. Do not skip when one exists. Do not ask the human to configure it first.
 * Use `.workflow/bin/integrate <n> -- <that command>` only. If the repo has no quality command, `.workflow/bin/integrate <n>` and say so.
-* It refuses anything it cannot merge safely: dirty `main`, uncommitted worker changes, `.backlog/` edits, dependency violations, conflicts, inconsistent task/worktree state, or failed check.
+* It refuses anything it cannot merge safely: dirty `main`, uncommitted worker changes, worker edits to `.backlog/config.yml`, dependency violations, conflicts, inconsistent task/worktree state, or failed check.
 * Worker checkpoint commits may be squashed; `main` receives one logical task commit.
-* On success it validates the merged tree, squash-merges the task, marks `task-<n>` Done in the same state transition, and removes the worktree and branch.
+* On success it validates the merged tree, squash-merges the task, marks `task-<n>` Done, and removes the worktree and branch.
 * Any failure leaves `main` unchanged.
 * Follow `integrate` errors instead of bypassing its guardrails.
 * Conventions enter this file only when the human explicitly adopts them.

@@ -23,7 +23,7 @@
 
 1. **默认轻快，直出主干（Default to Main）**：绝不无谓拆解任务。日常单点变更直接在 `main` 分支一气呵成完成验证与提交，保持极高吞吐；
 2. **任务管理，井然有序（Chat is Not State）**：以极简轻量的 `.backlog/` 本地文本持久化状态，杜绝会话上下文膨胀与遗忘，随时无损重启或交接；
-3. **按需隔离，并发无扰（Git Worktree）**：仅在真正需要并行并发、长期任务或涉及重叠冲突时，才派发独立工作树，物理隔离，不留隐患；
+3. **按需隔离，并发无扰（Git Worktree）**：仅在真正需要并行或跨会话的长任务时，才派发独立工作树，物理隔离；属于在途任务的追加需求改卡后交给同一个 Worker，不重复派发；
 4. **推断门禁，绝不发明（Deterministic Integration）**：直接复用宿主项目现有的测试/构建脚本（`npm test` / `cargo test` / `make check` 等），门禁脚本只做确定性原子校验、合入与清理，零外部侵入。
 5. **一人对话，全局调度（Orchestrator Mode）**：手动输入 `/orchestrator`，当前会话只负责沟通、规划、派发与验收，实现全部交给独立 Worker，走的仍是同一套任务与门禁（详见下文「调度者模式」）。
 
@@ -39,7 +39,7 @@
 安装或更新工作流：读取 https://github.com/shiguangwl/Loom-Workflow 的 INSTALL.md 并照做。
 ```
 
-Agent 比对两边的 `.workflow/VERSION`：没装过就安装，版本落后就更新，已是最新就直说。更新会保留宿主自己加的 `AGENTS.md` 章节和任务数据。安装后不记录来源、不关联本仓库，下次更新再发一次这句即可。
+Agent 比对两边的 `.workflow/VERSION`：没装过就安装，版本落后就更新，已是最新且清单与磁盘一致就直说；缺清单或清单与磁盘不一致时会补齐安装状态。更新会保留宿主自己加的 `AGENTS.md` / Claude 入口内容和任务数据，只更新指定的运行文件与技能路径。`INSTALL.md`、`README.md`、`skills-lock.json` 是源仓库开发资产，安装只读取它们，不复制或覆盖宿主同名文件；宿主的 `.workflow/installed-files.json` 记录可安全清理的单个文件/链接。安装后不记录来源、不关联本仓库，下次更新再发一次这句即可。
 
 ### 前置依赖
 
@@ -60,15 +60,14 @@ Agent 比对两边的 `.workflow/VERSION`：没装过就安装，版本落后就
 | | 默认模式 | Orchestrator 模式 |
 |---|---|---|
 | **谁来实现** | 主 Agent 默认在 `main` 直出，并行/长任务才派发 | 项目文件的改动全部派发给 Worker |
-| **任务与合入** | 按需创建 Backlog 任务 | 每个改动都走 Backlog 任务 → 独立 worktree → `integrate` |
+| **任务与合入** | 按需创建 Backlog 任务 | 每个改动都走任务路径：归入在途任务，否则新建任务 → 独立 worktree → `integrate` |
 | **你要做的** | 需要时说“派 task-3”“合 task-3” | 只谈需求与决策；派发、验收、合入由它推进并汇报 |
 
-它只覆盖 `AGENTS.md` 中“主 Agent 默认在 `main` 上实现”这一条，其余规则原样沿用，不引入新的流程分支；对应全景图中“需要并行 / 跨会话或涉及冲突区？”恒走任务化分支。
+它只覆盖 `AGENTS.md` 中“主 Agent 默认在 `main` 上实现”这一条，其余规则原样沿用，不引入新的流程分支；对应全景图中“需要并行 / 跨会话？”恒走任务化分支。
 
 - **触发**：Claude Code 输入 `/orchestrator`，Codex 输入 `$orchestrator`。只能由用户手动触发，Agent 不会自行进入；说一声即可退出。模式不跨会话，新会话重新触发，状态从 `.backlog/` 重建。
 - **派发时机**：明确指令直接派发；讨论中产生的工作，先按任务卡复述目标与验收标准，你同意后才派发。
-- **任务卡即简报**：Worker 全新启动，只被告知任务号与 worktree 路径，其余信息都在任务卡上；Worker 的疑问回到 Orchestrator，答案记入任务卡。
-- **调度靠判断**：属于在途任务的追加需求进入同一个 worktree（同一时间只有一个 Worker）；无关工作或任务已 Done，则新建任务。
+- **任务卡即简报**：Worker 全新启动，只被告知任务号、worktree 路径和主检出路径，其余信息都在任务卡上；Worker 的疑问回到 Orchestrator，答案记入任务卡。
 - **验收把关**：`integrate` 只保证检查通过，不保证验收标准达标。合入前对照任务卡审 diff，返工退回 Worker；通过即自动合入并汇报。
 
 适合连续交付多个需求的长会话。单点小改动不必开启：此模式下改一行字也要走任务与合入。
@@ -81,12 +80,12 @@ Agent 比对两边的 `.workflow/VERSION`：没装过就安装，版本落后就
 flowchart TD
     Chat["<b>Chat is not state</b><br/>状态持久化于 .backlog/，任务清晰、上下文零丢失"]
     Main["<b>默认轻快直干 (Default to Main)</b><br/>拒绝过度工程化，单点变更直接交付，不做虚耗拆解"]
-    Worktree["<b>按需并发隔离 (Git Worktree)</b><br/>仅并行/长任务派发独立工作区，物理隔离无污染"]
+    Worktree["<b>按需并发隔离 (Git Worktree)</b><br/>在途追加同一 Worker；并行/长任务才新建"]
     Gate["<b>极简确定性门禁 (.workflow/bin/integrate)</b><br/>复用项目原生测试，原子合入与自动清理"]
     Grill["<b>关键决策穷追 (Grilling & 对审)</b><br/>仅在核心架构模糊或高危契约时启用，好钢用在刀刃上"]
 
     Chat --> Main
-    Main -- 遇并行/长任务 --> Worktree
+    Main -- 在途追加或并行/长任务 --> Worktree
     Worktree --> Gate
     Main --> Gate
     Main -. 契约未定/高危边界 .-> Grill
@@ -95,13 +94,14 @@ flowchart TD
 
 ### 1. 对话不是状态，任务持久化落盘（Chat is not state）
 - **痛点**：传统 AI 编程依赖会话上下文（Chat Context）暂存任务状态。随着会话拉长，不仅上下文急剧膨胀、token 消耗失控，模型还会出现严重的遗忘与幻觉。
-- **Loom 实践**：会话仅用于即时交互，**任务目标、决策记录、验收标准（AC）全部沉淀于本地 `.backlog/` 文本库**。通过轻量 CLI 工具（`backlog task list --plain`），任何 Agent 在任何时刻加入协作，都能在数毫秒内无损重建全局认知。
+- **Loom 实践**：会话仅用于即时交互，**任务目标、决策记录、验收标准（AC）全部沉淀于本地 `.backlog/` 文本库**。任务卡只在本机、不进 git；关键决策随最终提交的 Why 段进入历史。通过轻量 CLI 工具（`backlog task list --plain`），任何 Agent 在任何时刻加入协作，都能在数毫秒内无损重建全局认知。
 
 ### 2. 少即是多：默认主干轻快，按需任务隔离（Default to Main, Isolate On-Demand）
 - **痛点**：很多工作流机械化地要求“任何修改必须先开卡、再切分支、再跑流程”，导致改动几行代码耗费半小时，严重拖慢迭代速度。
 - **Loom 实践**：
   - **默认在 `main` 直出**：一个逻辑改动、一次即时检查、一个规范 Commit。杜绝简单事情复杂化；
-  - **仅在必要时派发 Worktree**：只有当工作**需要多 Agent 并行开发**、**任务跨越多轮长会话**，或者**会侵入其他在途任务的重叠区域**时，才创建 `task-<n>` 并通过 `git worktree` 派发独立工作树；
+  - **仅在必要时派发 Worktree**：只有当工作**需要多 Agent 并行开发**或**跨越多轮长会话**时，才创建 `task-<n>` 并通过 `git worktree` 派发独立工作树；
+  - **追加不重派**：新需求若改变某个在途任务的产出、或碰到它的区域，就归入那个任务：改卡，交给同一个 Worker 在同一个面板继续；只有与所有在途任务无关、或相关任务已 Done 的工作才新建任务；
   - **最小垂直切片**：派发的 Worker 智能体以极简端到端垂直切片为目标，工作区物理隔离，专注交付，互不干扰。
 
 ### 3. 推断而非发明：极简确定性机械门禁（Infer, Don't Invent）
@@ -130,7 +130,10 @@ flowchart TD
     Clarify -- 否 / 模糊 --> Grill["执行 grilling 技能<br/>决策树质询并消除歧义"]
     Grill --> Clarify
 
-    Clarify -- 是 / 明确 --> ScopeCheck{需要并行 / 跨会话<br/>或涉及冲突区?}
+    Clarify -- 是 / 明确 --> InFlight{属于某个<br/>在途任务?}
+    InFlight -- 是 --> Append["改卡并追加给同一 Worker<br/>同 worktree 同面板"]
+    Append --> Worker
+    InFlight -- 否 --> ScopeCheck{需要并行 / 跨会话?}
 
     ScopeCheck -- 否 / 日常轻快 --> DirectMain["<b>Main 极简直出</b><br/>最小改动实施与本地验证"]
     DirectMain --> MainCommit["主分支原子单提交<br/>完成交付"]
@@ -175,9 +178,10 @@ flowchart TD
 ```text
 ├── AGENTS.md                 # 核心规约：多 Agent 协同准则与边界契约（根目录必须）
 ├── CLAUDE.md                 # 工具重定向（指向 @AGENTS.md，兼容 Claude Code）
-├── INSTALL.md                # 交由 Agent 执行的安装与更新规范
-├── skills-lock.json          # 技能锁文件：记录 Agent Skills 的来源与版本
-├── .backlog/                 # 任务状态中枢：Backlog.md 本地任务库，只通过 CLI 读写
+├── README.md                 # 源仓库资产：项目说明，不复制到宿主
+├── INSTALL.md                # 源仓库资产：交由 Agent 执行的安装与更新规范，不复制到宿主
+├── skills-lock.json          # 源仓库资产：维护 Loom 自身依赖，不覆盖宿主同名锁文件
+├── .backlog/                 # 任务状态中枢：Backlog.md 本地任务库，只通过 CLI 读写；任务卡不进 git，只跟踪 config.yml
 │   └── config.yml            # 任务配置（项目名、状态集：To Do / Done 等）
 ├── .agents/skills/           # 赋能技能库
 │   ├── grilling/             # 决策质询技能（消除模糊与设计树推演）
@@ -186,7 +190,8 @@ flowchart TD
 ├── .claude/skills/           # 符号链接（指向 .agents/skills/，兼容 Claude 生态）
 └── .workflow/
     ├── bin/integrate         # 核心门禁脚本：自动化校验、原子合入与任务状态流转
-    └── VERSION               # 工作流版本号，安装与更新时比对
+    ├── VERSION               # 工作流版本号，安装与更新时比对
+    └── installed-files.json  # 宿主安装成功后生成的状态清单；不提交源仓库
 ```
 
 ---
@@ -211,7 +216,7 @@ flowchart TD
 - **日常单点改动（Default to Main）**：
   > “直接在 main 分支修复这个样式对齐问题，完成本地验证后提交。”
 - **拆分与编排任务（并发/长任务）**：
-  > “请评估当前需求，在 main 分支规划并创建对应任务，明确 AC 和依赖关系，先提交 .backlog/。”
+  > “请评估当前需求，在 main 分支规划并创建对应任务，明确 AC 和依赖关系。”
 - **并行派发 Worker**：
   > “请将 task-3 派发至独立 worktree 并启动 Worker 开始交付，完成后汇报我。”
 - **原子验收与合入**：
@@ -230,6 +235,9 @@ flowchart TD
 
 What
 - 本次变更的核心内容说明
+
+Why
+- 任务卡上的关键决策与取舍；任务卡不进 git，这里是它们唯一的历史
 
 Verified
 - 执行的具体验证命令及输出摘要（如 npm test / cargo test）
