@@ -266,14 +266,10 @@ What
 - 本次变更的核心内容说明
 
 Why
-- 任务卡上的关键决策与取舍；任务卡不进 git，这里是它们唯一的历史
-
-Verified
-- 执行的具体验证命令及输出摘要（如 npm test / cargo test）
-
-Deviations
-- 对原定计划的合理偏离说明（无则写“无”）
+- 关键决策、原因与取舍；有任务卡时保留其中值得长期追溯的决策
 ```
+
+小改动若标题已充分说明，可省略正文。
 
 - **Type 类型**：`feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `perf` / `style` / `build` / `ci`
 - **版本号**：修改 `INSTALL.md` 清单内的文件时，同步提升 `.workflow/VERSION`（语义化版本），否则已安装的项目会被判定为已是最新。
