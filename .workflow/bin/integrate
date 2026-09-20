@@ -5,14 +5,14 @@
 # the commit lands and is never part of it.
 #
 # Usage: .workflow/bin/integrate <n> [-- <check command>]
-#   Merges branch task/<n>, closes task-<n>. The check command, if given, runs on
+#   Resolves task/<n>-<slug> (or legacy task/<n>), closes task-<n>.
+#   The check command, if given, runs on
 #   the merged tree before anything is committed; the caller picks the project's
 #   real quality command (e.g. `-- npm test`, `-- make check && make build`).
 set -euo pipefail
 n=${1:?usage: .workflow/bin/integrate <n> [-- <check command>]}
 shift; [ "${1:-}" != "--" ] || shift
 check="$*"
-branch="task/$n"
 task="task-$n"
 cd "$(git rev-parse --show-toplevel)"
 die() { echo "integrate: $*" >&2; exit 1; }
@@ -20,7 +20,16 @@ die() { echo "integrate: $*" >&2; exit 1; }
 # Preflight. Nothing below this block changes state until all of it passes.
 [ "$(git branch --show-current)" = main ] || die "run from main"
 git diff --quiet && git diff --cached --quiet || die "main worktree is dirty; commit or stash first"
-git rev-parse --verify -q "$branch" >/dev/null || die "branch $branch not found"
+branch=""
+while IFS= read -r candidate; do
+  case "$candidate" in
+    "task/$n"|"task/$n-"?*)
+      [ -z "$branch" ] || die "multiple branches for $task: $branch, $candidate; keep exactly one task branch"
+      branch=$candidate
+      ;;
+  esac
+done < <(git for-each-ref --format='%(refname:lstrip=2)' refs/heads/task/)
+[ -n "$branch" ] || die "no branch found for $task; expected task/$n-<slug>"
 command -v python3 >/dev/null || die "python3 is required to read Backlog.md JSON"
 card_json=$(backlog task view "$task" --json 2>/dev/null) || die "$task not found in .backlog"
 {

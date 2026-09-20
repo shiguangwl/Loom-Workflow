@@ -232,9 +232,11 @@ flowchart TD
 | **列出任务** | `backlog task list --plain` | 适合 Agent 读取的高密度无格式任务列表 |
 | **创建任务** | `backlog task create "<标题>" --ac "<验收标准>" [--dep <前置ID>]` | 明确边界与依赖创建任务 |
 | **查看详情** | `backlog task view task-<n>` | 读取单卡的目标、决策与 AC |
-| **派发任务** | `git worktree add ../<repo>-task-<n> -b task/<n> main` | 为 Worker 创建隔离的工作树空间 |
+| **派发任务** | `git worktree add ../<repo>-task-<n> -b task/<n>-<slug> main` | 为 Worker 创建隔离的工作树空间 |
 | **自动化合入** | `.workflow/bin/integrate <n> -- <质检命令>` | **在 main 分支执行**，校验并合入任务 |
 | **手动评审** | `/review-changes` / `$review-changes` | 评审本会话提交或用户指定范围 |
+
+任务分支使用 `task/<编号>-<简短描述>`，例如 `task/12-add-login`、`task/13-fix-cart-total`；描述用小写英文单词和连字符概括任务内容。编号关联 Backlog 任务，同一任务只保留一个分支。合入仍使用 `integrate 12`，脚本按编号查找分支，兼容已有的 `task/12`；若同一编号匹配多个分支则停止，避免误合入。任务标题调整后无需重命名分支。
 
 ### 2. 典型人机交互场景口令
 
@@ -273,4 +275,5 @@ Why
 
 - **Type 类型**：`feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `perf` / `style` / `build` / `ci`
 - **版本号**：修改 `INSTALL.md` 清单内的文件时，同步提升 `.workflow/VERSION`（语义化版本），否则已安装的项目会被判定为已是最新。
+- **验证**：运行 `bash -n .workflow/bin/integrate` 和 `python3 tests/test_integrate.py`；回归测试需要 Git、Backlog.md CLI 和 Python 3，在临时仓库中验证合入流程。
 - **规则优先级**：项目级规则与协作约定统一汇总于仓库根目录的 `AGENTS.md`，所有进入此流程的 Agent 均需严格遵守。

@@ -1,7 +1,7 @@
 # How we work
 * Tasks live in `.backlog/` (Backlog.md CLI; `backlog <cmd> --help`). Cards are local state and stay out of git; only `.backlog/config.yml` is tracked. Chat is not state. Rebuild context from `backlog task list --plain`, `git branch --list 'task/*'`, `git worktree list`.
 * Only the main agent writes Backlog state (`create`, `edit`, status changes), and only from the `main` checkout. Workers only read their card: `BACKLOG_CWD=<main checkout> backlog task <id> --plain`.
-* Branch `task/<n>` always maps to task `task-<n>`: one worktree, one worker at a time.
+* Branch `task/<n>-<slug>` maps to task `task-<n>`; `<slug>` is a short lowercase kebab-case task summary. One branch, one worktree, one worker per task.
 * On a `task/*` branch you are a worker. The delegated task and Review define your scope; planning, Backlog state, dependencies, and integration belong to the main agent.
 
 ## Planning
@@ -17,7 +17,7 @@
 
 ## Doing work
 * Main agent: work on `main` by default, one logical commit per complete change, with checks proportional to risk.
-* Delegated task: work only in its worktree on `task/<n>`. Never modify `.backlog/`, another branch, or another in-flight task's owned area without an explicit contract change.
+* Delegated task: work only in its worktree on `task/<n>-<slug>`. Never modify `.backlog/`, another branch, or another in-flight task's owned area without an explicit contract change.
 * Implement the smallest solution that fully satisfies the task.
 * Ambiguous shared or external contract: stop and ask in your own session; do not commit a guess.
 * Local implementation ambiguity: make the smallest reversible choice consistent with existing conventions and continue.
@@ -26,7 +26,7 @@
 * Final commit body: `What / Why`. Small changes fully explained by the subject may omit the body.
 * Fresh worktree: install what the project already needs to run those checks (lockfile → `npm ci` / `pnpm i` / equivalent).
 * Start each worker fresh with its task id, the absolute path of its worktree, and the absolute path of the `main` checkout. Everything else it needs belongs on the card; its open questions come back to the main agent, who records the answers on the card.
-* Before each dispatch, check `HERDR_ENV`. If it is `1`, use the herdr skill even if the user did not mention Herdr: create the task worktree, place the Worker in the current tab to the right of the rightmost Worker, and keep the main pane focused. Do not use a hidden sub-agent, do not leave the Worker in another workspace, and if Herdr fails, report it and stop — do not switch channels. Close the Worker pane before `integrate`; successful `integrate` removes the worktree. If `HERDR_ENV` is not `1`, use `git worktree add ../<repo>-task-<n> -b task/<n> main`, start the same kind of agent in that directory, and deliver only `task-<n>` (`<repo>` is the current directory).
+* Before each dispatch, check `HERDR_ENV`. If it is `1`, use the herdr skill even if the user did not mention Herdr: create the task worktree, place the Worker in the current tab to the right of the rightmost Worker, and keep the main pane focused. Do not use a hidden sub-agent, do not leave the Worker in another workspace, and if Herdr fails, report it and stop — do not switch channels. Close the Worker pane before `integrate`; successful `integrate` removes the worktree. If `HERDR_ENV` is not `1`, use `git worktree add ../<repo>-task-<n> -b task/<n>-<slug> main`, start the same kind of agent in that directory, and deliver only `task-<n>` (`<repo>` is the current directory).
 
 ## Review
 * Separate code review requires an explicit user request; users may invoke `review-changes`. Normal implementation verification and acceptance checks still apply.
