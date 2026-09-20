@@ -1,82 +1,178 @@
-#!/usr/bin/env bash
-# Merge a finished task branch into main as one commit and mark the task Done.
-# Worker checkpoint commits are squash-merged; every failure leaves main as it was.
-# Backlog cards are local state outside git, so the Done transition happens after
-# the commit lands and is never part of it.
-#
-# Usage: .workflow/bin/integrate <n> [-- <check command>]
-#   Resolves task/<n>-<slug> (or legacy task/<n>), closes task-<n>.
-#   The check command, if given, runs on
-#   the merged tree before anything is committed; the caller picks the project's
-#   real quality command (e.g. `-- npm test`, `-- make check && make build`).
-set -euo pipefail
-n=${1:?usage: .workflow/bin/integrate <n> [-- <check command>]}
-shift; [ "${1:-}" != "--" ] || shift
-check="$*"
-task="task-$n"
-cd "$(git rev-parse --show-toplevel)"
-die() { echo "integrate: $*" >&2; exit 1; }
+#!/usr/bin/env python3
+"""Merge a finished task branch into main as one commit and mark the task Done.
 
-# Preflight. Nothing below this block changes state until all of it passes.
-[ "$(git branch --show-current)" = main ] || die "run from main"
-git diff --quiet && git diff --cached --quiet || die "main worktree is dirty; commit or stash first"
-branch=""
-while IFS= read -r candidate; do
-  case "$candidate" in
-    "task/$n"|"task/$n-"?*)
-      [ -z "$branch" ] || die "multiple branches for $task: $branch, $candidate; keep exactly one task branch"
-      branch=$candidate
-      ;;
-  esac
-done < <(git for-each-ref --format='%(refname:lstrip=2)' refs/heads/task/)
-[ -n "$branch" ] || die "no branch found for $task; expected task/$n-<slug>"
-command -v python3 >/dev/null || die "python3 is required to read Backlog.md JSON"
-card_json=$(backlog task view "$task" --json 2>/dev/null) || die "$task not found in .backlog"
-{
-  read -r task_status
-  read -r parent
-  read -r blockers
-} < <(printf '%s' "$card_json" | python3 -c '
-import json, sys
-t = json.load(sys.stdin)["task"]
-r = t.get("readiness") or {}
-blocked = list(r.get("blockingDependencies") or []) + list(r.get("missingDependencies") or [])
-print(t.get("status") or "")
-print(t.get("parentTaskId") or "")
-print(",".join(blocked))
-')
-[ "$task_status" != "Done" ] || die "$task is already Done; inconsistent with an open $branch"
-[ -z "$blockers" ] || die "$task is blocked on $blockers; those dependencies must be Done first"
-count=$(git rev-list --count "main..$branch")
-[ "$count" -ge 1 ] || die "$branch is not ahead of main; nothing to merge"
-git diff --quiet "main...$branch" -- .backlog/config.yml || die "$branch edits .backlog/config.yml; only the main agent writes Backlog config"
-wt=$(git worktree list --porcelain | awk -v b="refs/heads/$branch" '$1=="worktree"{p=$2} $1=="branch"&&$2==b{print p}')
-[ -z "$wt" ] || [ -z "$(git -C "$wt" status --porcelain)" ] || die "$wt has uncommitted changes; the worker must commit or discard them first"
+Worker checkpoint commits are squash-merged; every failure leaves main as it was.
+Backlog cards are local state outside git, so the Done transition happens after
+the commit lands and is never part of it.
 
-# From here until the commit lands, any failure restores main.
-trap 'git reset -q --hard; echo "integrate: failed; main restored" >&2' ERR
-if ! git merge --squash -q "$branch" >/dev/null 2>&1; then
-  conflicts=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
-  git reset -q --hard
-  die "conflicts with main in: ${conflicts}- the worker must rebase $branch onto main and re-check"
-fi
-if [ -z "$check" ]; then
-  echo "integrate: no check command given; merging $branch unchecked" >&2
-elif ! bash -ec "$check"; then
-  git reset -q --hard
-  die "check failed on the merged tree; main restored. Run the same command on main: if it also fails, main itself is broken; otherwise send the output above to the worker of $branch"
-fi
-git commit -q -F <(git log -1 --format=%B "$branch")
-trap - ERR
+Usage: .workflow/bin/integrate <n> [-- <command> [args...] [--next-check <command> [args...]]...]
+  Where scripts are not directly executable: python .workflow/bin/integrate ...
+  Resolves task/<n>-<slug> (or legacy task/<n>), closes task-<n>.
+  Checks run in order on the merged tree before anything is committed and stop
+  at the first failure. Pass each command as separate arguments, e.g.
+  `-- npm test --next-check npm run build`. No shell syntax is interpreted;
+  only --next-check is reserved, so a command's own -- is passed through.
+"""
+import json
+import os
+import shutil
+import stat
+import subprocess
+import sys
 
-# Cleanup. main already has the commit; failures here are not rolled back.
-backlog task edit "$task" -s Done >/dev/null
-[ -z "$wt" ] || git worktree remove --force "$wt"
-git branch -D "$branch" >/dev/null
-echo "integrated $branch as $(git rev-parse --short HEAD); $task -> Done"
 
-if [ -n "$parent" ]; then
-  open=$(backlog task list -p "$parent" --exclude-status Done --plain 2>/dev/null || true)
-  # Task lines are indented; the "no child tasks" message is not.
-  grep -q '^  TASK-' <<<"$open" || echo "all subtasks of $parent are Done; close it with: backlog task edit $parent -s Done"
-fi
+def die(message):
+    sys.exit(f"integrate: {message}")
+
+
+def say(message):
+    # Flushed so it keeps its place among the output of the commands around it.
+    print(message, flush=True)
+
+
+def run(*cmd, quiet=False):
+    return subprocess.run(
+        cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL if quiet else None,
+        encoding="utf-8", errors="replace",
+    )
+
+
+def ok(*cmd):
+    return run(*cmd, quiet=True).returncode == 0
+
+
+def out(*cmd):
+    result = run(*cmd)
+    if result.returncode:
+        die(f"`{' '.join(cmd)}` failed")
+    return result.stdout.strip()
+
+
+def run_check(command):
+    # Resolve npm's .cmd shim on Windows as well as ordinary executables.
+    executable = shutil.which(command[0])
+    if not executable:
+        die(f"check executable not found: {command[0]!r}; pass the executable and its arguments separately and ensure it is installed")
+    return subprocess.run([executable, *command[1:]], shell=False).returncode
+
+
+def parse_checks(arguments):
+    if not arguments:
+        return []
+    if arguments[0] == "--":
+        arguments = arguments[1:]
+    checks = [[]]
+    for argument in arguments:
+        if argument == "--next-check":
+            if not checks[-1]:
+                die("empty check command; provide an executable after -- or --next-check")
+            checks.append([])
+        else:
+            checks[-1].append(argument)
+    if not checks[-1]:
+        die("empty check command; provide an executable after -- or --next-check")
+    return checks
+
+
+def make_writable(top):
+    for root, dirs, files in os.walk(top):
+        for name in dirs + files:
+            path = os.path.join(root, name)
+            try:
+                mode = os.lstat(path).st_mode
+                if not stat.S_ISLNK(mode) and not mode & stat.S_IWUSR:
+                    os.chmod(path, mode | stat.S_IWUSR)
+            except OSError:
+                pass
+
+
+def main():
+    args = sys.argv[1:]
+    if not args:
+        die("usage: .workflow/bin/integrate <n> [-- <command> [args...] [--next-check <command> [args...]]...]")
+    n, rest = args[0], args[1:]
+    checks = parse_checks(rest)
+    task = f"task-{n}"
+    os.chdir(out("git", "rev-parse", "--show-toplevel"))
+
+    # Preflight. Nothing below this block changes state until all of it passes.
+    if out("git", "branch", "--show-current") != "main":
+        die("run from main")
+    if not (ok("git", "diff", "--quiet") and ok("git", "diff", "--cached", "--quiet")):
+        die("main worktree is dirty; commit or stash first")
+    branch = ""
+    for candidate in out("git", "for-each-ref", "--format=%(refname:lstrip=2)", "refs/heads/task/").splitlines():
+        if candidate == f"task/{n}" or (candidate.startswith(f"task/{n}-") and candidate != f"task/{n}-"):
+            if branch:
+                die(f"multiple branches for {task}: {branch}, {candidate}; keep exactly one task branch")
+            branch = candidate
+    if not branch:
+        die(f"no branch found for {task}; expected task/{n}-<slug>")
+    # Resolved to a full path so Windows finds the npm `.cmd` shim.
+    backlog = shutil.which("backlog") or die("backlog CLI not found in PATH")
+    view = run(backlog, "task", "view", task, "--json", quiet=True)
+    if view.returncode:
+        die(f"{task} not found in .backlog")
+    card = json.loads(view.stdout)["task"]
+    readiness = card.get("readiness") or {}
+    blockers = list(readiness.get("blockingDependencies") or []) + list(readiness.get("missingDependencies") or [])
+    parent = card.get("parentTaskId") or ""
+    if card.get("status") == "Done":
+        die(f"{task} is already Done; inconsistent with an open {branch}")
+    if blockers:
+        die(f"{task} is blocked on {','.join(blockers)}; those dependencies must be Done first")
+    if int(out("git", "rev-list", "--count", f"main..{branch}")) < 1:
+        die(f"{branch} is not ahead of main; nothing to merge")
+    if not ok("git", "diff", "--quiet", f"main...{branch}", "--", ".backlog/config.yml"):
+        die(f"{branch} edits .backlog/config.yml; only the main agent writes Backlog config")
+    wt = path = ""
+    for line in out("git", "worktree", "list", "--porcelain").splitlines():
+        if line.startswith("worktree "):
+            path = line[len("worktree "):]
+        elif line == f"branch refs/heads/{branch}":
+            wt = path
+    if wt and out("git", "-C", wt, "status", "--porcelain"):
+        die(f"{wt} has uncommitted changes; the worker must commit or discard them first")
+
+    # From here until the commit lands, any failure restores main.
+    try:
+        if not ok("git", "merge", "--squash", "-q", branch):
+            conflicts = out("git", "-c", "core.quotepath=false", "diff", "--name-only", "--diff-filter=U")
+            die(f"conflicts with main in: {' '.join(conflicts.splitlines())} - the worker must rebase {branch} onto main and re-check")
+        if not checks:
+            print(f"integrate: no check command given; merging {branch} unchecked", file=sys.stderr)
+        for command in checks:
+            if run_check(command):
+                die(f"check failed on the merged tree: {command!r}; main restored. Run the same command on main: if it also fails, main itself is broken; otherwise send the output above to the worker of {branch}")
+        # Bytes end to end: the message must not pass through the locale's encoding.
+        message = subprocess.run(["git", "log", "-1", "--format=%B", branch], stdout=subprocess.PIPE).stdout
+        if subprocess.run(["git", "commit", "-q", "-F", "-"], input=message).returncode:
+            die("commit failed; main restored")
+    except BaseException:
+        run("git", "reset", "-q", "--hard")
+        raise
+
+    # Cleanup. main already has the commit, so nothing here is rolled back, and a
+    # step that fails is reported last instead of skipping the steps after it.
+    out(backlog, "task", "edit", task, "-s", "Done")
+    left = []
+    if wt:
+        # Read-only trees (e.g. Go's module cache) make `worktree remove` fail with Permission denied.
+        make_writable(wt)
+        if run("git", "worktree", "remove", "--force", wt).returncode:
+            left.append(f"delete {wt} and run `git worktree prune`")
+    if run("git", "branch", "-D", branch).returncode:
+        left.append(f"run `git branch -D {branch}`")
+    say(f"integrated {branch} as {out('git', 'rev-parse', '--short', 'HEAD')}; {task} -> Done")
+
+    if parent:
+        listing = run(backlog, "task", "list", "-p", parent, "--exclude-status", "Done", "--plain", quiet=True)
+        # Task lines are indented; the "no child tasks" message is not.
+        if listing.returncode == 0 and not any(line.startswith("  TASK-") for line in listing.stdout.splitlines()):
+            say(f"all subtasks of {parent} are Done; close it with: backlog task edit {parent} -s Done")
+    if left:
+        print(f"integrate: {branch} is merged, but cleanup did not finish: {'; '.join(left)}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()

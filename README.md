@@ -46,7 +46,7 @@ Agent 比对两边的 `.workflow/VERSION`：没装过就安装，版本落后就
 
 本工作流保持极简依赖，只需开发环境具备：
 - `git`
-- `python3`（供 `integrate` 门禁解析 Backlog 元数据）
+- `python3`（运行 `integrate` 门禁；脚本不能直接执行的系统用 `python .workflow/bin/integrate …`）
 - `backlog.md`（轻量级本地任务管理工具）：
   ```bash
   npm i -g backlog.md
@@ -61,7 +61,7 @@ Agent 比对两边的 `.workflow/VERSION`：没装过就安装，版本落后就
 | | 默认模式 | Orchestrator 模式 |
 |---|---|---|
 | **谁来实现** | 主 Agent 默认在 `main` 直出，并行/长任务才派发 | 项目文件的改动全部派发给 Worker |
-| **任务与合入** | 按需创建 Backlog 任务 | 每个改动都走任务路径：归入在途任务，否则新建任务 → 独立 worktree → `integrate` |
+| **任务与合入** | 按需创建 Backlog 任务 | 每个改动都走任务路径：归入所属的未完成任务（在做或排队），否则新建任务 → 独立 worktree → `integrate` |
 | **你要做的** | 需要时说“派 task-3”“合 task-3” | 只谈需求与决策；派发、验收、合入由它推进并汇报 |
 
 它只覆盖 `AGENTS.md` 中“主 Agent 默认在 `main` 上实现”这一条，其余规则原样沿用，不引入新的流程分支；对应全景图中“需要并行 / 跨会话？”恒走任务化分支。
@@ -70,6 +70,8 @@ Agent 比对两边的 `.workflow/VERSION`：没装过就安装，版本落后就
 - **派发时机**：明确指令直接派发；讨论中产生的工作，先按任务卡复述目标与验收标准，你同意后才派发。
 - **任务卡即简报**：Worker 全新启动，只被告知任务号、worktree 路径和主检出路径，其余信息都在任务卡上；Worker 的疑问回到 Orchestrator，答案记入任务卡。
 - **验收把关**：`integrate` 只保证检查通过，不保证验收标准达标。合入前对照任务卡审 diff，返工退回 Worker；通过即自动合入并汇报。
+- **队列自己往前走**：Worker 完成不会唤醒 Orchestrator，所以它每派发一个 Worker 就挂一个后台等待；轮到它时验收、合入，并派发已就绪的任务。
+- **排队如实回执**：每次接需求或汇报结果时，用你的原话（不是卡号）交代所有未完成需求的状态：在做，或在等什么。
 
 适合连续交付多个需求的长会话。单点小改动不必开启：此模式下改一行字也要走任务与合入。
 
@@ -144,7 +146,7 @@ flowchart TD
   - **评审手动触发**：开发与合入照常执行项目检查；代码评审由用户按需发起，可以集中检查一批任务，也可以指定范围和评审方式。
 
 ### 5. 零配置与完全无侵入（Drop-in & Non-invasive）
-- **Loom 实践**：整个工作流纯由透明文本规约（`AGENTS.md`）与极简 Shell 脚本构成，**绝不侵入目标项目的业务代码、现有测试框架与依赖锁文件**。任何现有代码库只需一条指令即可接入或平滑升级。
+- **Loom 实践**：整个工作流纯由透明文本规约（`AGENTS.md`）与一个极简 Python 脚本构成，**绝不侵入目标项目的业务代码、现有测试框架与依赖锁文件**。任何现有代码库只需一条指令即可接入或平滑升级。
 
 ---
 
@@ -238,6 +240,14 @@ flowchart TD
 
 任务分支使用 `task/<编号>-<简短描述>`，例如 `task/12-add-login`、`task/13-fix-cart-total`；描述用小写英文单词和连字符概括任务内容。编号关联 Backlog 任务，同一任务只保留一个分支。合入仍使用 `integrate 12`，脚本按编号查找分支，兼容已有的 `task/12`；若同一编号匹配多个分支则停止，避免误合入。任务标题调整后无需重命名分支。
 
+检查命令按参数直接执行，不依赖 Bash/sh。多项检查用 `--next-check` 分隔，按顺序运行，任一失败即停止并回滚合入：
+
+```text
+python .workflow/bin/integrate 12 -- npm test --next-check npm run build
+```
+
+`--next-check` 是保留的命令分隔符，其余参数（包括命令自身的 `--`）原样传递。不要用 `&&`、`;`、管道或重定向拼接检查，也不要把整条命令作为一个字符串传入；复杂检查应调用项目已有的检查脚本。
+
 ### 2. 典型人机交互场景口令
 
 - **方向未定？先磨刀（Grilling）**：
@@ -275,5 +285,5 @@ Why
 
 - **Type 类型**：`feat` / `fix` / `refactor` / `docs` / `test` / `chore` / `perf` / `style` / `build` / `ci`
 - **版本号**：修改 `INSTALL.md` 清单内的文件时，同步提升 `.workflow/VERSION`（语义化版本），否则已安装的项目会被判定为已是最新。
-- **验证**：运行 `bash -n .workflow/bin/integrate` 和 `python3 tests/test_integrate.py`；回归测试需要 Git、Backlog.md CLI 和 Python 3，在临时仓库中验证合入流程。
+- **验证**：运行 `python3 tests/test_integrate.py`；回归测试需要 Git、Backlog.md CLI 和 Python 3，在临时仓库中验证合入流程。
 - **规则优先级**：项目级规则与协作约定统一汇总于仓库根目录的 `AGENTS.md`，所有进入此流程的 Agent 均需严格遵守。
