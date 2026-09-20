@@ -19,9 +19,11 @@
 .agents/skills/grilling/**              # 源树中该路径下的文件
 .agents/skills/herdr/**
 .agents/skills/orchestrator/**
+.agents/skills/review-changes/**
 .claude/skills/grilling                 # 符号链接 → ../../.agents/skills/grilling
 .claude/skills/herdr                    # 符号链接 → ../../.agents/skills/herdr
 .claude/skills/orchestrator             # 符号链接 → ../../.agents/skills/orchestrator
+.claude/skills/review-changes           # 符号链接 → ../../.agents/skills/review-changes
 ```
 
 `**` 只代表源树实际分发的单个文件或符号链接，不代表要删除目标目录里的其它内容。目录本身永远不是清理目标。
@@ -78,7 +80,7 @@ test "$src" != "$dest" || { echo '源目录不能是宿主目录' >&2; exit 1; }
 
 不要用 `trap ... EXIT` 清理克隆目录，也不要依赖变量跨步骤存活：agent 通常每条命令都是新 shell，trap 会在当前命令结束时就删掉源树。每一步都按上面的固定路径重新推导 `src` 和 `dest`；临时文件一律用下文的固定文件名。
 
-开始时先删除宿主里上次留下的 `.workflow/VERSION.tmp`、`.workflow/installed-files.json.tmp`、`.workflow/install-preread.tmp`（若存在）。确认源树存在 `.workflow/VERSION`、`.workflow/bin/integrate` 和三个指定技能路径；缺任一项就停止。**不要先覆盖再读取。**
+开始时先删除宿主里上次留下的 `.workflow/VERSION.tmp`、`.workflow/installed-files.json.tmp`、`.workflow/install-preread.tmp`（若存在）。确认源树存在 `.workflow/VERSION`、`.workflow/bin/integrate` 和第 0 节列出的指定技能路径；缺任一项就停止。**不要先覆盖再读取。**
 
 在任何写入前完成以下预读：
 
@@ -86,7 +88,7 @@ test "$src" != "$dest" || { echo '源目录不能是宿主目录' >&2; exit 1; }
 2. 若已有安装且宿主版本、清单 `version` 与源版本三者相同，`.workflow/installed-files.json` 是有效的 `schemaVersion=1` 清单，且清单内每个路径的当前 `sha256` 或 `linkTarget` 仍匹配，则报告已是最新并结束，不写任何文件。
 3. 若已有安装但版本不同、没有清单、清单损坏，或清单与磁盘不一致，则继续更新。**同版本缺清单或文件对不上也必须补齐，不能直接跳过。**更新已有安装时，先确认宿主工作区干净；脏则列出文件并停止。新装不改宿主已有业务文件。
 4. 读取并暂存宿主原有的 `AGENTS.md`、根 `CLAUDE.md`、`.claude/CLAUDE.md` 内容，之后才能覆盖/合并。
-5. 读取并解析宿主旧 `.workflow/installed-files.json`。只有顶层 `schemaVersion=1`、`version` 是字符串、`files` 是对象，且每个路径都是安全的相对路径、每条记录恰好是 `sha256` 或 `linkTarget` 之一，**并且每个路径都属于第 0 节 Loom 完整管理的清理域**时，才把它作为清理授权。清理域包括 `.workflow/VERSION`、`.workflow/bin/integrate`、三个指定 `.agents/skills/<skill>/` 路径下的任意历史单文件/链接，以及三个固定 `.claude/skills/*` 链接；共享入口、Backlog 任务、锁文件、README 和其它宿主路径即使出现在格式有效的清单中也使整份清单失效。否则视为无有效清单，保留原文件并汇报。
+5. 读取并解析宿主旧 `.workflow/installed-files.json`。只有顶层 `schemaVersion=1`、`version` 是字符串、`files` 是对象，且每个路径都是安全的相对路径、每条记录恰好是 `sha256` 或 `linkTarget` 之一，**并且每个路径都属于第 0 节 Loom 完整管理的清理域**时，才把它作为清理授权。清理域包括 `.workflow/VERSION`、`.workflow/bin/integrate`、第 0 节指定 `.agents/skills/<skill>/` 路径下的任意历史单文件/链接，以及对应的固定 `.claude/skills/*` 链接；共享入口、Backlog 任务、锁文件、README 和其它宿主路径即使出现在格式有效的清单中也使整份清单失效。否则视为无有效清单，保留原文件并汇报。
 
 判定需要继续写入后，把预读结果写成 `.workflow/install-preread.tmp`，三行：`wasInstalled=<true|false>`、`srcVersion=<源版本>`、`destVersion=<宿主版本或空>`。之后每步从该文件重读；成功或失败后都删除它。判定已是最新则不要创建该文件。
 
@@ -94,7 +96,7 @@ test "$src" != "$dest" || { echo '源目录不能是宿主目录' >&2; exit 1; }
 
 ## 2. 计算旧文件清理范围
 
-在复制新文件前，根据刚才保存的旧清单和源树本次文件集合计算待清理项。新集合只包含第 0 节列出的 `.workflow/VERSION`、`.workflow/bin/integrate`、三个指定技能路径下源树本次实际存在的单个文件，以及三个 `.claude/skills/*` 链接；不包含文档、清单和共享文件。旧清单的授权域则允许三个指定技能路径下已从源树删除的历史单文件/链接进入差集，但仍不得越过上述 Loom 清理域去删除共享入口、Backlog 任务、锁文件或业务文件。
+在复制新文件前，根据刚才保存的旧清单和源树本次文件集合计算待清理项。新集合只包含第 0 节列出的 `.workflow/VERSION`、`.workflow/bin/integrate`、指定技能路径下源树本次实际存在的单个文件，以及对应的 `.claude/skills/*` 链接；不包含文档、清单和共享文件。旧清单的授权域则允许这些指定技能路径下已从源树删除的历史单文件/链接进入差集，但仍不得越过上述 Loom 清理域去删除共享入口、Backlog 任务、锁文件或业务文件。
 
 旧清单中不在新集合的项，逐项执行以下检查：
 
@@ -106,7 +108,7 @@ test "$src" != "$dest" || { echo '源目录不能是宿主目录' >&2; exit 1; }
 
 所有写入都在第 1 节的旧内容读取完成后进行。复制前确保父目录存在；失败就停止，不输出“安装完成”，并且不要提前写新的版本或成功清单。
 
-在执行复制或 `ln` 之前检查目标类型：`.workflow`、`.workflow/bin`、`.agents`、`.agents/skills`、`.claude`、`.claude/skills` 若已存在必须是目录而不是符号链接；已有 `.workflow/VERSION`、`.workflow/bin/integrate` 必须是普通文件；三个指定技能路径若已存在必须是目录；三个 `.claude/skills/*` 若已存在必须已经是指向预期目标的符号链接。任一类型或链接目标冲突都先停止并汇报，不能让后面的 `cp`/`ln` 覆盖宿主内容。
+在执行复制或 `ln` 之前检查目标类型：`.workflow`、`.workflow/bin`、`.agents`、`.agents/skills`、`.claude`、`.claude/skills` 若已存在必须是目录而不是符号链接；已有 `.workflow/VERSION`、`.workflow/bin/integrate` 必须是普通文件；第 0 节指定技能路径若已存在必须是目录；对应的 `.claude/skills/*` 若已存在必须已经是指向预期目标的符号链接。任一类型或链接目标冲突都先停止并汇报，不能让后面的 `cp`/`ln` 覆盖宿主内容。
 
 确认目标类型无冲突后，从源树复制/更新以下内容：
 
@@ -114,12 +116,13 @@ test "$src" != "$dest" || { echo '源目录不能是宿主目录' >&2; exit 1; }
 mkdir -p .workflow/bin .agents/skills .claude/skills
 cp "$src/.workflow/bin/integrate" .workflow/bin/integrate
 chmod +x .workflow/bin/integrate
-for skill in grilling herdr orchestrator; do
+for skill in grilling herdr orchestrator review-changes; do
   cp -R "$src/.agents/skills/$skill" .agents/skills/
 done
 ln -sfn ../../.agents/skills/grilling .claude/skills/grilling
 ln -sfn ../../.agents/skills/herdr .claude/skills/herdr
 ln -sfn ../../.agents/skills/orchestrator .claude/skills/orchestrator
+ln -sfn ../../.agents/skills/review-changes .claude/skills/review-changes
 # 只暂存版本；先不要覆盖目标 VERSION
 cp "$src/.workflow/VERSION" .workflow/VERSION.tmp
 ```
@@ -173,4 +176,4 @@ backlog task list --plain
 
 ## 5. 安装后核验
 
-每次安装完成后核验并汇报：`.workflow/VERSION` 与源版本一致且 `integrate` 可执行；清单是有效 JSON、`version` 与源/目标版本一致、只含第 0 节的 Loom 完整管理文件/链接且与磁盘哈希/链接目标匹配；`AGENTS.md` 含 Integrate 节且引用 `.workflow/bin/integrate`；根 `CLAUDE.md` 首行是 `@AGENTS.md`，`.claude/CLAUDE.md` 首行是 `@../AGENTS.md`；三个 `.claude/skills/*` 是指向 `.agents/skills/` 的预期符号链接；`backlog task list --plain` 能运行。根据预读快照确认宿主 `README.md`、`INSTALL.md`、`skills-lock.json`、业务文件、无关技能和已有任务未被覆盖，`.gitignore` 除两行 Backlog 规则外未变；旧清单清理中因修改、未知归属或类型冲突而保留的文件逐项报告。
+每次安装完成后核验并汇报：`.workflow/VERSION` 与源版本一致且 `integrate` 可执行；清单是有效 JSON、`version` 与源/目标版本一致、只含第 0 节的 Loom 完整管理文件/链接且与磁盘哈希/链接目标匹配；`AGENTS.md` 含 Integrate 节且引用 `.workflow/bin/integrate`；根 `CLAUDE.md` 首行是 `@AGENTS.md`，`.claude/CLAUDE.md` 首行是 `@../AGENTS.md`；第 0 节列出的 `.claude/skills/*` 是指向 `.agents/skills/` 的预期符号链接；`backlog task list --plain` 能运行。根据预读快照确认宿主 `README.md`、`INSTALL.md`、`skills-lock.json`、业务文件、无关技能和已有任务未被覆盖，`.gitignore` 除两行 Backlog 规则外未变；旧清单清理中因修改、未知归属或类型冲突而保留的文件逐项报告。

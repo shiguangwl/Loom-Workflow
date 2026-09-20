@@ -1,0 +1,5 @@
+interface:
+  display_name: "Review Changes"
+  short_description: "Review session commits or a user-specified scope"
+policy:
+  allow_implicit_invocation: false

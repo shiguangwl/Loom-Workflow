@@ -26,6 +26,7 @@
 3. **按需隔离，并发无扰（Git Worktree）**：仅在真正需要并行或跨会话的长任务时，才派发独立工作树，物理隔离；属于在途任务的追加需求改卡后交给同一个 Worker，不重复派发；
 4. **推断门禁，绝不发明（Deterministic Integration）**：直接复用宿主项目现有的测试/构建脚本（`npm test` / `cargo test` / `make check` 等），门禁脚本只做确定性原子校验、合入与清理，零外部侵入。
 5. **一人对话，全局调度（Orchestrator Mode）**：手动输入 `/orchestrator`，当前会话只负责沟通、规划、派发与验收，实现全部交给独立 Worker，走的仍是同一套任务与门禁（详见下文「调度者模式」）。
+6. **按需评审，自主选择（Review Changes）**：完成一批任务后，通过 `review-changes` 集中评审。你决定何时评审、评审哪些改动，以及使用什么评审方式。
 
 ---
 
@@ -74,6 +75,32 @@ Agent 比对两边的 `.workflow/VERSION`：没装过就安装，版本落后就
 
 ---
 
+## 手动评审（Review Changes）
+
+连续完成多个任务后，可以用 `review-changes` 发起一次集中评审。是否评审、何时评审由你决定，工作流不会在每个任务结束后自动启动，也不要求 Claude Code 与 Codex 互相评审。
+
+| 使用的工具 | 调用方式 |
+|---|---|
+| Claude Code | `/review-changes` |
+| Codex | `$review-changes` |
+
+- **评审范围**：默认评审当前会话的提交。你也可以直接说明要检查的任务、提交或其他范围；无法确定范围时，Agent 会先询问。
+- **评审方式**：优先复用当前环境已有的评审技能。你可以指定其他技能或评审方式，也可以补充希望重点检查的问题。
+- **结果处理**：默认返回评审结果。收到结果后，再决定是否让 Agent 修复，以及修复哪些问题。
+- **日常验证**：测试、构建、需求验收和合入检查照常执行，不需要等你发起评审。
+
+例如，在 Codex 中可以这样使用；Claude Code 使用 `/review-changes` 作为入口：
+
+| 需求 | 示例 |
+|---|---|
+| 一批任务完成后统一评审 | `$review-changes` |
+| 只检查某部分改动 | `$review-changes 只评审这次支付流程相关的提交` |
+| 补充评审重点 | `$review-changes 重点检查接口兼容性和错误处理` |
+
+`review-changes` 本身不提供一套固定的评审标准。具体如何检查由实际使用的评审技能或你指定的方式决定。
+
+---
+
 ## 💡 设计哲学：强模型下的新一代编码范式
 
 ```mermaid
@@ -82,13 +109,13 @@ flowchart TD
     Main["<b>默认轻快直干 (Default to Main)</b><br/>拒绝过度工程化，单点变更直接交付，不做虚耗拆解"]
     Worktree["<b>按需并发隔离 (Git Worktree)</b><br/>在途追加同一 Worker；并行/长任务才新建"]
     Gate["<b>极简确定性门禁 (.workflow/bin/integrate)</b><br/>复用项目原生测试，原子合入与自动清理"]
-    Grill["<b>关键决策穷追 (Grilling & 对审)</b><br/>仅在核心架构模糊或高危契约时启用，好钢用在刀刃上"]
+    Grill["<b>关键决策质询 (Grilling)</b><br/>方向或共享契约未定时澄清"]
 
     Chat --> Main
     Main -- 在途追加或并行/长任务 --> Worktree
     Worktree --> Gate
     Main --> Gate
-    Main -. 契约未定/高危边界 .-> Grill
+    Main -. 方向或契约未定 .-> Grill
     Grill -. 明确决策树 .-> Main
 ```
 
@@ -110,11 +137,11 @@ flowchart TD
   - **零外部发明**：`.workflow/bin/integrate` 会直接自动推断目标项目已有的测试/构建脚本（如 `package.json`、`Makefile`、`Cargo.toml` 等），绝不发明宿主没有的检查；
   - **确定性原子把关**：机械检查分支是否洁净、前置依赖是否交付、原有测试是否全绿。通过则一键 Squash 合入并自动关闭任务、删除临时分支；未通过则触发原子级硬回滚，主干不留半点污染。
 
-### 4. 聚焦关键契约，好钢用在刀刃上（Targeted Grilling & Review）
+### 4. 方向未定先澄清，评审由用户发起（Grilling & Manual Review）
 - **痛点**：在每个琐碎环节都强制插入多模型交叉会审，白白消耗大量时间与调用成本。
 - **Loom 实践**：
   - **方向模糊才质询**：仅在技术选型不确定、核心契约待定或需求存在歧义时，才调用 `grilling` 技能进行决策树穷追质询，先锁死设计边界再动手；
-  - **高危边界才对审**：仅在涉及核心公共契约、数据迁移、安全敏感边界时，才按需触发跨模型审查（如 Codex 与 Claude 交叉对审）。日常普通业务逻辑完全信任强模型的高速输出。
+  - **评审手动触发**：开发与合入照常执行项目检查；代码评审由用户按需发起，可以集中检查一批任务，也可以指定范围和评审方式。
 
 ### 5. 零配置与完全无侵入（Drop-in & Non-invasive）
 - **Loom 实践**：整个工作流纯由透明文本规约（`AGENTS.md`）与极简 Shell 脚本构成，**绝不侵入目标项目的业务代码、现有测试框架与依赖锁文件**。任何现有代码库只需一条指令即可接入或平滑升级。
@@ -154,10 +181,7 @@ flowchart TD
 
     Dispatch --> WorkerExecution
 
-    WorkerTest --> ReviewCheck{高危边界 / 核心契约?}
-    ReviewCheck -- 是 --> CrossReview["异构跨模型审查<br/>Codex vs Claude 对审"]
-    CrossReview --> Gate
-    ReviewCheck -- 否 --> Gate
+    WorkerTest --> Gate
 
     subgraph IntegrateGate ["确定性原子门禁 (.workflow/bin/integrate)"]
         Gate["执行 preflight 防御检查<br/>依赖/分支/工作区状态"]
@@ -169,6 +193,7 @@ flowchart TD
     end
 
     FinalCommit --> End
+    End -. 用户按需发起 .-> ReviewChanges["review-changes<br/>评审变更并返回结果"]
 ```
 
 ---
@@ -186,7 +211,8 @@ flowchart TD
 ├── .agents/skills/           # 赋能技能库
 │   ├── grilling/             # 决策质询技能（消除模糊与设计树推演）
 │   ├── herdr/                # 终端复用与多 Agent 编排技能
-│   └── orchestrator/         # 调度者模式（仅手动触发）：本会话沟通、派发与验收，实现全部委派
+│   ├── orchestrator/         # 调度者模式（仅手动触发）：本会话沟通、派发与验收，实现全部委派
+│   └── review-changes/       # 手动发起评审：默认检查本会话提交，支持用户指定范围与方式
 ├── .claude/skills/           # 符号链接（指向 .agents/skills/，兼容 Claude 生态）
 └── .workflow/
     ├── bin/integrate         # 核心门禁脚本：自动化校验、原子合入与任务状态流转
@@ -208,6 +234,7 @@ flowchart TD
 | **查看详情** | `backlog task view task-<n>` | 读取单卡的目标、决策与 AC |
 | **派发任务** | `git worktree add ../<repo>-task-<n> -b task/<n> main` | 为 Worker 创建隔离的工作树空间 |
 | **自动化合入** | `.workflow/bin/integrate <n> -- <质检命令>` | **在 main 分支执行**，校验并合入任务 |
+| **手动评审** | `/review-changes` / `$review-changes` | 评审本会话提交或用户指定范围 |
 
 ### 2. 典型人机交互场景口令
 
@@ -223,6 +250,8 @@ flowchart TD
   > “task-3 开发完成，请在 main 执行合入，使用项目的全量测试脚本 `npm test` 作为质量门禁。”
 - **本会话只做调度（Orchestrator）**：
   > `/orchestrator`（Codex 用 `$orchestrator`），行为见上文「调度者模式」。
+- **一批任务完成后集中评审（Review Changes）**：
+  > `/review-changes 重点检查这批任务之间是否存在冲突或遗漏`（Codex 用 `$review-changes`）。
 
 ---
 

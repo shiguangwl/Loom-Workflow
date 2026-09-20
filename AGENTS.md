@@ -31,10 +31,7 @@
 * Before each dispatch, check `HERDR_ENV`. If it is `1`, use the herdr skill even if the user did not mention Herdr: create the task worktree, place the Worker in the current tab to the right of the rightmost Worker, and keep the main pane focused. Do not use a hidden sub-agent, do not leave the Worker in another workspace, and if Herdr fails, report it and stop — do not switch channels. Close the Worker pane before `integrate`; successful `integrate` removes the worktree. If `HERDR_ENV` is not `1`, use `git worktree add ../<repo>-task-<n> -b task/<n> main`, start the same kind of agent in that directory, and deliver only `task-<n>` (`<repo>` is the current directory).
 
 ## Review
-* Cross-vendor review only when a wrong change would be costly and automated checks cannot sufficiently vouch for it: shared/public contracts, data or migrations, concurrency, security-sensitive boundaries, or edits to tests/checks themselves.
-* Claude-authored → `codex review --uncommitted` on `main`, or `codex review --base main` in a task worktree.
-* Codex-authored → a Claude session reviews the equivalent diff.
-* Review findings are claims; verify them before acting.
+* Separate code review requires an explicit user request; users may invoke `review-changes`. Normal implementation verification and acceptance checks still apply.
 
 ## Integrate
 * Infer the check from the repo each time (`package.json` / Makefile / `justfile` / CI / `pyproject.toml` / `Cargo.toml` / `go.mod`): prefer an existing `check` or `ci` script, otherwise compose the existing test / typecheck / build entries into one shell command. Do not invent a check the project does not have. Do not skip when one exists. Do not ask the human to configure it first.
