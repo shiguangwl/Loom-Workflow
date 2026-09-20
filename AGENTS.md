@@ -13,7 +13,7 @@
 * Related tasks may share a parent epic:
   `backlog task create "<title>" [-p <epic-id>] --ac "<criterion>" --dep <task-ids>`
 * Foundation work that defines shared contracts or enables parallel work is done on `main` first.
-* Dispatch only tasks whose dependencies are Done. Product decisions and irreversible trade-offs go to the human.
+* Dispatch only tasks whose dependencies are Done, with at most 5 workers running concurrently. Product decisions and irreversible trade-offs go to the human.
 
 ## Doing work
 * Main agent: work on `main` by default, one logical commit per complete change, with checks proportional to risk.
