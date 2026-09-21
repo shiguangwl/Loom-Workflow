@@ -36,7 +36,7 @@
 * Use `.workflow/bin/integrate <n> -- <command> [args...]`, separating additional commands with `--next-check` (e.g. `-- npm test --next-check npm run build`). Commands run directly without shell parsing; do not join them with `&&` or `;`, or quote an entire command into one argument. A command's own `--` is preserved. Where scripts are not directly executable, prefix the invocation with `python`. If the repo has no quality command, `.workflow/bin/integrate <n>` and say so.
 * It refuses anything it cannot merge safely: dirty `main`, uncommitted worker changes, worker edits to `.backlog/config.yml`, dependency violations, conflicts, inconsistent task/worktree state, or failed check.
 * Worker checkpoint commits may be squashed; `main` receives one logical task commit.
-* On success it validates the merged tree, squash-merges the task, marks `task-<n>` Done, and removes the worktree and branch.
+* On success it validates the merged tree, squash-merges the task, marks `task-<n>` Done, moves its card to `.backlog/completed/`, and removes the worktree and branch.
 * Any failure leaves `main` unchanged.
 * Follow `integrate` errors instead of bypassing its guardrails.
 * Conventions enter this file only when the human explicitly adopts them.

@@ -43,11 +43,11 @@ class IntegrateTest(unittest.TestCase):
             encoding="utf-8", stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
 
-    def make_worker(self, branch):
+    def make_worker(self, branch, name="feature.txt"):
         worker = Path(self.temp.name) / "worker"
         self.run_command("git", "worktree", "add", "-qb", branch, str(worker), "main")
-        (worker / "feature.txt").write_text("login\n")
-        self.run_command("git", "add", "feature.txt", cwd=worker)
+        (worker / name).write_text("login\n")
+        self.run_command("git", "add", name, cwd=worker)
         self.run_command("git", "commit", "-qm", "feat(auth): 添加登录", cwd=worker)
         return worker
 
@@ -71,6 +71,7 @@ class IntegrateTest(unittest.TestCase):
         self.assertEqual("login\n", (self.repo / "feature.txt").read_text())
         self.assertEqual("feat(auth): 添加登录\n", self.run_command("git", "log", "-1", "--format=%s").stdout)
         self.assertEqual("Done", self.status(f"task-{number}"))
+        self.assertTrue(list((self.repo / ".backlog/completed").glob(f"task-{number} - *")))
         self.assertFalse(worker.exists())
         self.assertEqual("", self.run_command("git", "branch", "--list", branch).stdout)
         self.assertEqual("", self.run_command("git", "status", "--porcelain").stdout)
@@ -90,6 +91,13 @@ class IntegrateTest(unittest.TestCase):
         self.run_command("backlog", "task", "create", "Login form", "-p", "task-1", "--plain")
         self.run_command("git", "branch", "task/1-add-login")
         self.assert_integrated("task/1.1-login-form", "1.1")
+
+    def test_completed_dependency_does_not_block(self):
+        self.run_command("backlog", "task", "create", "Add logout", "--dep", "task-1", "--plain")
+        self.assert_integrated("task/1-add-login")
+        self.make_worker("task/2-add-logout", "logout.txt")
+        result = self.run_command(str(INTEGRATE), "2")
+        self.assertIn("integrated task/2-add-logout ", result.stdout)
 
     def test_read_only_tree_in_worktree_is_cleaned_up(self):
         # Go's module cache is written read-only inside the worktree.

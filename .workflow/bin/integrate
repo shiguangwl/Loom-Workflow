@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Merge a finished task branch into main as one commit and mark the task Done.
+"""Merge a finished task branch into main as one commit, mark the task Done and complete its card.
 
 Worker checkpoint commits are squash-merged; every failure leaves main as it was.
 Backlog cards are local state outside git, so the Done transition happens after
@@ -156,6 +156,11 @@ def main():
     # step that fails is reported last instead of skipping the steps after it.
     out(backlog, "task", "edit", task, "-s", "Done")
     left = []
+    # Done cards leave `backlog task list`; dependencies on them stay satisfied.
+    # `task complete` fails without a reason when the folder is missing, and install ships only config.yml.
+    os.makedirs(".backlog/completed", exist_ok=True)
+    if run(backlog, "task", "complete", task, quiet=True).returncode:
+        left.append(f"run `backlog task complete {task}`")
     if wt:
         # Read-only trees (e.g. Go's module cache) make `worktree remove` fail with Permission denied.
         make_writable(wt)
@@ -169,7 +174,7 @@ def main():
         listing = run(backlog, "task", "list", "-p", parent, "--exclude-status", "Done", "--plain", quiet=True)
         # Task lines are indented; the "no child tasks" message is not.
         if listing.returncode == 0 and not any(line.startswith("  TASK-") for line in listing.stdout.splitlines()):
-            say(f"all subtasks of {parent} are Done; close it with: backlog task edit {parent} -s Done")
+            say(f"all subtasks of {parent} are Done; close it with: backlog task edit {parent} -s Done && backlog task complete {parent}")
     if left:
         print(f"integrate: {branch} is merged, but cleanup did not finish: {'; '.join(left)}", file=sys.stderr)
 

@@ -191,7 +191,7 @@ flowchart TD
         Squash --> RunCheck["执行项目既有测试命令<br/>npm test / make check 等"]
         RunCheck -- 失败 --> Rollback["原子回滚: 主分支还原<br/>报错信息返回 Worker"]
         Rollback --> Worker
-        RunCheck -- 成功 --> FinalCommit["主分支原子提交<br/>task-n 联动置为 Done<br/>自动清理分支与 Worktree"]
+        RunCheck -- 成功 --> FinalCommit["主分支原子提交<br/>task-n 联动置为 Done 并归档<br/>自动清理分支与 Worktree"]
     end
 
     FinalCommit --> End
