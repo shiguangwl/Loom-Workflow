@@ -3,12 +3,14 @@
 * Only the main agent writes Backlog state (`create`, `edit`, status changes), and only from the `main` checkout. Workers only read their card: `BACKLOG_CWD=<main checkout> backlog task <id> --plain`.
 * Branch `task/<n>-<slug>` maps to task `task-<n>`; `<slug>` is a short lowercase kebab-case task summary. One branch, one worktree, one worker per task.
 * On a `task/*` branch you are a worker. The delegated task and Review define your scope; planning, Backlog state, dependencies, and integration belong to the main agent.
+* The human waits on every check, and an agent does not feel the wait: run one only to answer an open question, and pick the cheapest one that can answer it.
 
 ## Planning
 * If product direction, technical direction, or an important shared contract is still open, run the `grilling` skill first.
 * Default to working on `main`. Create a task only when work runs in parallel or will outlive this session.
 * While tasks are in flight, route every new request before creating anything: if it changes what an in-flight task should produce, or touches that task's area, it belongs to that task. Update the card (goal, decisions, acceptance criteria) and re-prompt the same worker in its pane; it re-reads the card. Only work independent of every in-flight task, or arriving after the related task is Done, becomes a new task.
-* A task description holds Goal, Decisions with why, Out of scope, and acceptance criteria.
+* A task description holds Goal, Decisions with why, Out of scope, acceptance criteria, and the check that `integrate` will run.
+* Slow suites (end-to-end, real devices, measurements) run only when the card names them, with a run count. What the human can judge at a glance is theirs to judge: when the work lands, say what to look at.
 * Split only where parts can proceed independently; never just to make pieces smaller. Prefer demoable end-to-end vertical slices.
 * Related tasks may share a parent epic:
   `backlog task create "<title>" [-p <epic-id>] --ac "<criterion>" --dep <task-ids>`
@@ -21,7 +23,8 @@
 * Implement the smallest solution that fully satisfies the task.
 * Ambiguous shared or external contract: stop and ask in your own session; do not commit a guess.
 * Local implementation ambiguity: make the smallest reversible choice consistent with existing conventions and continue.
-* Workers may create checkpoint commits when useful. Before handoff, the worktree must be clean, the project's existing checks green, and the branch must represent one logical change suitable for squashing onto `main`. The tip commit's message becomes the `main` commit message.
+* A check that passed on this tree is not run again until the tree changes. Keep a check's output in a file outside the tree. When a check is red, reproduce the failure with the smallest command; a failure you cannot place in your own diff goes to the main agent.
+* Workers may create checkpoint commits when useful. Before handoff, the worktree must be clean, the card's check green, and the branch must represent one logical change suitable for squashing onto `main`. The tip commit's message becomes the `main` commit message.
 * Final commit subject: `<type>(<scope>): 中文祈使句`.
 * Final commit body: `What / Why`. Small changes fully explained by the subject may omit the body.
 * Fresh worktree: install what the project already needs to run those checks (lockfile → `npm ci` / `pnpm i` / equivalent).
@@ -32,7 +35,7 @@
 * Separate code review requires an explicit user request; users may invoke `review-changes`. Normal implementation verification and acceptance checks still apply.
 
 ## Integrate
-* Infer the checks from the repo each time (`package.json` / Makefile / `justfile` / CI / `pyproject.toml` / `Cargo.toml` / `go.mod`): prefer an existing `check` or `ci` script, otherwise pass the existing test / typecheck / build commands separately. Do not invent a check the project does not have. Do not skip when one exists. Do not ask the human to configure it first.
+* `integrate` runs the card's check on the merged tree. Infer it from the repo when writing the card (`package.json` / Makefile / `justfile` / CI / `pyproject.toml` / `Cargo.toml` / `go.mod`): the narrowest existing command(s) that cover what the task changes, the `check` or `ci` script when it crosses modules. Do not invent a check the project does not have. Do not ask the human to configure it first.
 * Use `.workflow/bin/integrate <n> -- <command> [args...]`, separating additional commands with `--next-check` (e.g. `-- npm test --next-check npm run build`). Commands run directly without shell parsing; do not join them with `&&` or `;`, or quote an entire command into one argument. A command's own `--` is preserved. Where scripts are not directly executable, prefix the invocation with `python`. If the repo has no quality command, `.workflow/bin/integrate <n>` and say so.
 * It refuses anything it cannot merge safely: dirty `main`, uncommitted worker changes, worker edits to `.backlog/config.yml`, dependency violations, conflicts, inconsistent task/worktree state, or failed check.
 * Worker checkpoint commits may be squashed; `main` receives one logical task commit.

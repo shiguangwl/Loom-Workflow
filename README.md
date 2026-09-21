@@ -136,8 +136,9 @@ flowchart TD
 ### 3. 推断而非发明：极简确定性机械门禁（Infer, Don't Invent）
 - **痛点**：为了实现所谓的全自动，在工作流里塞入庞大复杂的自定义流水线或新增各种冗余配置文件，对宿主项目带来极高侵入性。
 - **Loom 实践**：
-  - **零外部发明**：`.workflow/bin/integrate` 会直接自动推断目标项目已有的测试/构建脚本（如 `package.json`、`Makefile`、`Cargo.toml` 等），绝不发明宿主没有的检查；
-  - **确定性原子把关**：机械检查分支是否洁净、前置依赖是否交付、原有测试是否全绿。通过则一键 Squash 合入并自动关闭任务、删除临时分支；未通过则触发原子级硬回滚，主干不留半点污染。
+  - **零外部发明**：检查命令由 Agent 写任务卡时从项目已有脚本（如 `package.json`、`Makefile`、`Cargo.toml` 等）推断，`integrate` 原样执行，绝不发明宿主没有的检查；
+  - **检查有价**：人在等每一次检查，而 Agent 感受不到等待。任务卡写明合入要跑的检查（覆盖改动面的最窄现有命令，跨模块才用全量），Worker 交付前与 `integrate` 跑同一条；通过的树不重跑，红了先用最小命令复现；慢套件（端到端、真机、测量）只在卡上点名并写明次数时运行，人一眼能判断的验收留给人；
+  - **确定性原子把关**：机械检查分支是否洁净、前置依赖是否交付、任务卡上的检查是否通过。通过则一键 Squash 合入并自动关闭任务、删除临时分支；未通过则触发原子级硬回滚，主干不留半点污染。
 
 ### 4. 方向未定先澄清，评审由用户发起（Grilling & Manual Review）
 - **痛点**：在每个琐碎环节都强制插入多模型交叉会审，白白消耗大量时间与调用成本。
@@ -188,7 +189,7 @@ flowchart TD
     subgraph IntegrateGate ["确定性原子门禁 (.workflow/bin/integrate)"]
         Gate["执行 preflight 防御检查<br/>依赖/分支/工作区状态"]
         Gate --> Squash["Squash 预合并至临时树"]
-        Squash --> RunCheck["执行项目既有测试命令<br/>npm test / make check 等"]
+        Squash --> RunCheck["执行任务卡写明的检查<br/>npm test / make check 等"]
         RunCheck -- 失败 --> Rollback["原子回滚: 主分支还原<br/>报错信息返回 Worker"]
         Rollback --> Worker
         RunCheck -- 成功 --> FinalCommit["主分支原子提交<br/>task-n 联动置为 Done 并归档<br/>自动清理分支与 Worktree"]
@@ -259,7 +260,7 @@ python .workflow/bin/integrate 12 -- npm test --next-check npm run build
 - **并行派发 Worker**：
   > “请将 task-3 派发至独立 worktree 并启动 Worker 开始交付，完成后汇报我。”
 - **原子验收与合入**：
-  > “task-3 开发完成，请在 main 执行合入，使用项目的全量测试脚本 `npm test` 作为质量门禁。”
+  > “task-3 开发完成，请在 main 执行合入，用任务卡上写明的检查作为质量门禁。”
 - **本会话只做调度（Orchestrator）**：
   > `/orchestrator`（Codex 用 `$orchestrator`），行为见上文「调度者模式」。
 - **一批任务完成后集中评审（Review Changes）**：
